@@ -9,16 +9,23 @@ options(shiny.port = 3030)
 # Define UI ----
 ui <- page_sidebar(
     title = "DIA Viewer",
-    selectizeInput("file_name",
-        label = h5("Select File:"),
-        choices = list.files(path = "./data"),
+    layout_columns(
+        tags$div(
+            selectizeInput("file_name",
+                label = h5("Select File:"),
+                choices = list.files(path = "./data", pattern = ".*\\.xic\\.parquet$"),
+            ),
+        ),
+        tags$div(
+            selectizeInput(
+                "peptide_name",
+                label = h5("Select Peptide:"),
+                choices = NULL,
+                options = list(maxOptions = 1000000000)
+            ),
+        ),
     ),
-    selectizeInput(
-        "peptide_name",
-        label = h5("Select Peptide:"),
-        choices = NULL,
-        options = list(maxOptions = 1000000000)
-    ),
+    textOutput("loading_text"),
     plotOutput("chart")
 )
 
@@ -26,6 +33,7 @@ ui <- page_sidebar(
 server <- function(input, output, session) {
     list_peptides <- NULL
     get_df <- reactive({
+        output$loading_text <- renderText("Loading...")
         req(input$file_name)
         read_parquet(
             paste0("./data/", input$file_name),
@@ -33,6 +41,7 @@ server <- function(input, output, session) {
         )
     })
     get_pep <- reactive({
+        output$loading_text <- renderText("")
         req(input$peptide_name)
         list_peptides[[input$peptide_name]]
     })
@@ -50,7 +59,7 @@ server <- function(input, output, session) {
                 ggplot(data = dframe_filt, mapping = aes(x = rt, y = value, group = feature, color = feature)) +
                     geom_line() +
                     geom_point() +
-                    labs(title = "Chromatogram", x = "rt", y = "value") +
+                    labs(title = paste0("Chromatogram: ", input$peptide_name), x = "Retention Time", y = "Value") +
                     theme_minimal()
             })
         })
