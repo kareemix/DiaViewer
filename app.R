@@ -34,7 +34,6 @@ server <- function(input, output, session) {
     })
     get_pep <- reactive({
         req(input$peptide_name)
-        # print(input$peptide_name)
         list_peptides[[input$peptide_name]]
     })
     observeEvent(get_df(), {
@@ -42,12 +41,15 @@ server <- function(input, output, session) {
         names_peptides <- names(list_peptides)
         updateSelectizeInput(session, "peptide_name", choices = names_peptides, server = TRUE)
         observeEvent(get_pep(), {
-            print(head(get_pep()))
             output$chart <- renderPlot({
                 dframe <- get_pep()
                 dframe_filt <- dframe[dframe$rt != 0, ]
-                ggplot(data = dframe_filt, mapping = aes_string(x = "rt", y = "value")) +
+                rt <- dframe_filt[["rt"]]
+                value <- dframe_filt[["value"]]
+                feature <- dframe_filt[["feature"]]
+                ggplot(data = dframe_filt, mapping = aes(x = rt, y = value, group = feature, color = feature)) +
                     geom_line() +
+                    geom_point() +
                     labs(title = "Chromatogram", x = "rt", y = "value") +
                     theme_minimal()
             })
