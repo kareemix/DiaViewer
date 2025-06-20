@@ -43,13 +43,15 @@ server <- function(input, output, session) {
         updateSelectizeInput(session, "peptide_name", choices = names_peptides, server = TRUE)
         observeEvent(get_pep(), {
             print(head(get_pep()))
+            output$chart <- renderPlot({
+                dframe <- get_pep()
+                dframe_filt <- dframe[dframe$rt != 0, ]
+                ggplot(data = dframe_filt, mapping = aes_string(x = "rt", y = "value")) +
+                    geom_line() +
+                    labs(title = "Chromatogram", x = "rt", y = "value") +
+                    theme_minimal()
+            })
         })
-    })
-    output$chart <- renderPlot({
-        # ggplot(data = dframe_peptide, mapping = aes_string(x = "rt", y = "value")) +
-        #     geom_line() +
-        #     labs(title = "Chromatogram", x = "rt", y = "value") +
-        #     theme_minimal()
     })
 }
 
