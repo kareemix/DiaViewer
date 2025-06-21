@@ -7,7 +7,7 @@ options(shiny.port = 3030)
 
 
 # Define UI ----
-ui <- page_sidebar(
+ui <- fluidPage(
     title = "DIA Viewer",
     layout_columns(
         tags$div(
@@ -32,8 +32,8 @@ ui <- page_sidebar(
 # Define server logic ----
 server <- function(input, output, session) {
     list_peptides <- NULL
+    chart <- NULL
     get_df <- reactive({
-        output$loading_text <- renderText("Loading...")
         req(input$file_name)
         read_parquet(
             paste0("./data/", input$file_name),
@@ -41,12 +41,16 @@ server <- function(input, output, session) {
         )
     })
     get_pep <- reactive({
-        output$loading_text <- renderText("")
+        output$loading_text <- renderText("Loaded")
         req(input$peptide_name)
         list_peptides[[input$peptide_name]]
     })
-    observeEvent(get_df(), {
-        list_peptides <<- split.data.frame(get_df(), get_df()$pr)
+    observeEvent(input$file_name, {
+        chart <<- NULL
+        output$loading_text <- renderText("Loading Parquet...")
+        dframe_file <- get_df()
+        output$loading_text <- renderText("Loading Peptides...")
+        list_peptides <<- split.data.frame(dframe_file, dframe_file$pr)
         names_peptides <- names(list_peptides)
         updateSelectizeInput(session, "peptide_name", choices = names_peptides, server = TRUE)
         observeEvent(get_pep(), {
