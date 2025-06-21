@@ -6,6 +6,10 @@ library(ggplot2)
 options(shiny.port = 3030)
 
 
+card_ui <- function(id) {
+}
+
+
 # Define UI ----
 ui <- fluidPage(
     title = "DIA Viewer",
@@ -32,7 +36,7 @@ ui <- fluidPage(
 # Define server logic ----
 server <- function(input, output, session) {
     list_peptides <- NULL
-    chart <- NULL
+    output$chart <- NULL
     get_df <- reactive({
         req(input$file_name)
         read_parquet(
@@ -46,14 +50,14 @@ server <- function(input, output, session) {
         list_peptides[[input$peptide_name]]
     })
     observeEvent(input$file_name, {
-        chart <<- NULL
+        output$chart <<- NULL
         output$loading_text <- renderText("Loading Parquet...")
         dframe_file <- get_df()
-        output$loading_text <- renderText("Loading Peptides...")
         list_peptides <<- split.data.frame(dframe_file, dframe_file$pr)
         names_peptides <- names(list_peptides)
         updateSelectizeInput(session, "peptide_name", choices = names_peptides, server = TRUE)
-        observeEvent(get_pep(), {
+        output$loading_text <- renderText("Loading Peptides...")
+        observeEvent(input$peptide_name, {
             output$chart <- renderPlot({
                 dframe <- get_pep()
                 dframe_filt <- dframe[dframe$rt != 0, ]
