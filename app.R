@@ -62,6 +62,7 @@ ui <- fluidPage(
             ),
         ),
     ),
+    textOutput("loading_text"),
     div(id = "chart_container")
 )
 
@@ -82,10 +83,14 @@ server <- function(input, output, session) {
         )
     }
     observeEvent(input$file_name, {
+        output$loading_text <- renderText({
+            "Loaded"
+        })
         removeUI(selector = "#chart_container > *", multiple = TRUE, immediate = TRUE)
         for (i in seq_along(list_mod_obs)) {
             (list_mod_obs[[i]])$destroy()
         }
+        updateSelectizeInput(session, "peptide_name", choices = NULL, server = TRUE)
         list_peptides <<- NULL
         list_peptides_list <<- list()
         file_list <- list()
@@ -102,7 +107,6 @@ server <- function(input, output, session) {
         updateSelectizeInput(session, "peptide_name", choices = names_peptides, server = TRUE)
         for (i in seq_along(file_list)) {
             local({
-                print(i)
                 this_i <- i
                 new_id <- paste0("plot_", this_i)
                 insertUI(
