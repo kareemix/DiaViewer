@@ -5,95 +5,117 @@ library(ggplot2)
 
 options(shiny.port = 3030)
 
-
-card_ui <- function(id) {
+plot_ui <- function(id, file_text) {
     ns <- NS(id)
-    card(
-        layout_columns(
-            tags$div(
-                selectizeInput(ns("file_name"),
-                    label = h5("Select File:"),
-                    choices = list.files(path = "./data", pattern = ".*\\.xic\\.parquet$"),
-                ),
-            ),
-            tags$div(
-                selectizeInput(
-                    ns("peptide_name"),
-                    label = h5("Select Peptide:"),
-                    choices = NULL,
-                    options = list(maxOptions = 1000000000)
-                ),
-            ),
-        ),
-        textOutput(ns("loading_text")),
-        plotOutput(ns("chart"))
+    div(
+        id = ns("plot_ui"),
+        card(
+            file_text,
+            plotOutput(ns("chart"))
+        )
     )
 }
-card_server <- function(id) {
+
+plot_server <- function(id, index, selector) {
     moduleServer(id, function(input, output, session) {
-        list_peptides <- NULL
-        output$chart <- NULL
-        get_df <- reactive({
-            req(input$file_name)
-            read_parquet(
-                paste0("./data/", input$file_name),
-                col_select = c("pr", "feature", "rt", "value")
-            )
-        })
         get_pep <- reactive({
-            output$loading_text <- renderText("Loaded")
-            req(input$peptide_name)
-            list_peptides[[input$peptide_name]]
+            req(selector())
+            return((list_peptides_list[[index]])[[selector()]])
         })
-        observeEvent(input$file_name, {
-            output$chart <<- NULL
-            output$loading_text <- renderText("Loading Parquet...")
-            dframe_file <- get_df()
-            list_peptides <<- split.data.frame(dframe_file, dframe_file$pr)
-            names_peptides <- names(list_peptides)
-            updateSelectizeInput(session, "peptide_name", choices = names_peptides, server = TRUE)
-            output$loading_text <- renderText("Loading Peptides...")
-            observeEvent(input$peptide_name, {
-                output$chart <- renderPlot({
-                    dframe <- get_pep()
-                    dframe_filt <- dframe[dframe$rt != 0, ]
-                    rt <- dframe_filt[["rt"]]
-                    value <- dframe_filt[["value"]]
-                    feature <- dframe_filt[["feature"]]
-                    ggplot(data = dframe_filt, mapping = aes(x = rt, y = value, group = feature, color = feature)) +
-                        geom_line() +
-                        geom_point() +
-                        labs(title = paste0("Chromatogram: ", input$peptide_name), x = "Retention Time", y = "Value") +
-                        theme_minimal()
-                })
+        obs <- observeEvent(selector(), {
+            dframe <- get_pep()
+            output$chart <- renderPlot({
+                dframe_filt <- dframe[dframe$rt != 0, ]
+                rt <- dframe_filt[["rt"]]
+                value <- dframe_filt[["value"]]
+                feature <- dframe_filt[["feature"]]
+                ggplot(data = dframe_filt, mapping = aes(x = rt, y = value, group = feature, color = feature)) +
+                    geom_line() +
+                    geom_point() +
+                    labs(title = paste0("Chromatogram: ", selector()), x = "Retention Time", y = "Value") +
+                    theme_minimal()
             })
         })
+        obs
     })
 }
-
 
 # Define UI ----
 ui <- fluidPage(
     title = "DIA Viewer",
-    actionButton("add_card", "Add New Plot"),
     layout_columns(
-        div(id = "card_container")
-    )
+        tags$div(
+            selectizeInput("file_name",
+                label = h5("Select File:"),
+                choices = list.files(path = "./data", pattern = ".*\\.xic\\.parquet$"),
+                multiple = TRUE,
+                selected = list.files(path = "./data", pattern = ".*\\.xic\\.parquet$"),
+                # TODO - new card_ui func to add same num of plots as files
+            ),
+        ),
+        tags$div(
+            selectizeInput(
+                "peptide_name",
+                label = h5("Select Peptide:"),
+                choices = NULL,
+                options = list(maxOptions = 1000000000)
+            ),
+        ),
+    ),
+    div(id = "chart_container")
 )
+
+append_unique_list <- function(target, source) {
+    unique(append(target, source))
+}
+
+list_peptides <- NULL
+list_peptides_list <- list()
+list_mod_obs <- list()
 
 # Define server logic ----
 server <- function(input, output, session) {
-    card_counter <- reactiveVal(0)
-    observeEvent(input$add_card, {
-        current_card_id <- card_counter() + 1
-        card_id <- paste0("item_card_", current_card_id)
-        card_counter(current_card_id)
-        insertUI(
-            selector = "#card_container",
-            ui = card_ui(card_id),
-            immediate = TRUE
+    get_df <- function(name) {
+        read_parquet(
+            paste0("./data/", name),
+            col_select = c("pr", "feature", "rt", "value")
         )
-        card_server(card_id)
+    }
+    observeEvent(input$file_name, {
+        removeUI(selector = "#chart_container > *", multiple = TRUE, immediate = TRUE)
+        for (i in seq_along(list_mod_obs)) {
+            (list_mod_obs[[i]])$destroy()
+        }
+        list_peptides <<- NULL
+        list_peptides_list <<- list()
+        file_list <- list()
+        for (parq in input$file_name) {
+            dframe_file <- get_df(parq)
+            file_list <- append(file_list, list(dframe_file))
+        }
+        names_peptides <- list()
+        for (dframe_file in file_list) {
+            list_peptides <<- split.data.frame(dframe_file, dframe_file$pr)
+            names_peptides <- append_unique_list(names_peptides, names(list_peptides))
+            list_peptides_list[length(list_peptides_list) + 1] <<- list(list_peptides)
+        }
+        updateSelectizeInput(session, "peptide_name", choices = names_peptides, server = TRUE)
+        for (i in seq_along(file_list)) {
+            local({
+                print(i)
+                this_i <- i
+                new_id <- paste0("plot_", this_i)
+                insertUI(
+                    selector = "#chart_container",
+                    ui = plot_ui(new_id, input$file_name[this_i]),
+                    immediate = TRUE
+                )
+                obs <- plot_server(new_id, this_i, selector = reactive({
+                    input$peptide_name
+                }))
+                list_mod_obs <<- append(list_mod_obs, list(obs))
+            })
+        }
     })
 }
 
