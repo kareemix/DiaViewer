@@ -5,6 +5,12 @@ library(ggplot2)
 
 options(shiny.port = 3030)
 
+
+list_peptides <- c()
+list_peptides_list <- c()
+list_mod_obs <- c()
+
+
 plot_ui <- function(id, file_text) {
     ns <- NS(id)
     div(
@@ -16,7 +22,7 @@ plot_ui <- function(id, file_text) {
     )
 }
 
-plot_server <- function(id, index, selector) {
+plot_server <- function(id, index, selector, yfilter, xfilter) {
     moduleServer(id, function(input, output, session) {
         get_pep <- reactive({
             req(selector())
@@ -26,14 +32,18 @@ plot_server <- function(id, index, selector) {
             dframe <- get_pep()
             output$chart <- renderPlot({
                 dframe_filt <- dframe[dframe$rt != 0, ]
+                ymax <- max(dframe_filt$value)
+                xmax <- max(dframe_filt$rt)
+                xmin <- dframe_filt$rt[1]
                 rt <- dframe_filt[["rt"]]
                 value <- dframe_filt[["value"]]
                 feature <- dframe_filt[["feature"]]
                 ggplot(data = dframe_filt, mapping = aes(x = rt, y = value, group = feature, color = feature)) +
                     geom_line() +
-                    geom_point() +
+                    geom_point(size = 3) +
                     labs(title = paste0("Chromatogram: ", selector()), x = "Retention Time", y = "Value") +
-                    theme_minimal()
+                    theme_minimal() +
+                    coord_cartesian(xlim = c(xfilter()[1] / 100 * (xmax - xmin) + xmin, xfilter()[2] / 100 * (xmax - xmin) + xmin), ylim = c(yfilter()[1] / 100 * ymax, yfilter()[2] / 100 * ymax))
             })
         })
         obs
@@ -61,7 +71,10 @@ ui <- fluidPage(
                 options = list(maxOptions = 1000000000)
             ),
         ),
-        verbatimTextOutput("status_output"),
+    ),
+    layout_columns(
+        sliderInput("yfilter", label = h5("Filter by Value"), min = 0, max = 100, value = c(0, 100)),
+        sliderInput("xfilter", label = h5("Filter by Retention Time"), min = 0, max = 100, value = c(0, 100)),
     ),
     div(id = "chart_container")
 )
@@ -70,9 +83,6 @@ append_unique_list <- function(target, source) {
     unique(append(target, source))
 }
 
-list_peptides <- list()
-list_peptides_list <- list()
-list_mod_obs <- list()
 
 # Define server logic ----
 server <- function(input, output, session) {
@@ -88,9 +98,9 @@ server <- function(input, output, session) {
             (list_mod_obs[[i]])$destroy()
         }
         updateSelectizeInput(session, "peptide_name", choices = NULL, server = TRUE)
-        list_peptides <<- list()
-        list_peptides_list <<- list()
-        file_list <- list()
+        list_peptides <<- c()
+        list_peptides_list <<- c()
+        file_list <- c()
         withProgress(message = "Processing Parquet(s)...", {
             for (i in seq_along(input$file_name)) {
                 parq <- input$file_name[[i]]
@@ -99,7 +109,7 @@ server <- function(input, output, session) {
                 incProgress(1 / length(input$file_name))
             }
         })
-        names_peptides <- list()
+        names_peptides <- c()
         withProgress(message = "Processing Peptides...", {
             for (i in seq_along(file_list)) {
                 dframe_file <- file_list[[i]]
@@ -119,11 +129,15 @@ server <- function(input, output, session) {
                     new_id <- paste0("plot_", this_i)
                     insertUI(
                         selector = "#chart_container",
-                        ui = plot_ui(new_id, input$file_name[this_i]),
+                        ui = plot_ui(id = new_id, file_text = input$file_name[this_i]),
                         immediate = TRUE
                     )
-                    obs <- plot_server(new_id, this_i, selector = reactive({
+                    obs <- plot_server(id = new_id, index = this_i, selector = reactive({
                         input$peptide_name
+                    }), yfilter = reactive({
+                        input$yfilter
+                    }), xfilter = reactive({
+                        input$xfilter
                     }))
                     list_mod_obs <<- append(list_mod_obs, list(obs))
                 })
