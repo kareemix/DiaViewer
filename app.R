@@ -32,18 +32,29 @@ plot_server <- function(id, index, selector, yfilter, xfilter) {
             dframe <- get_pep()
             output$chart <- renderPlot({
                 dframe_filt <- dframe[dframe$rt != 0, ]
-                ymax <- max(dframe_filt$value)
-                xmax <- max(dframe_filt$rt)
-                xmin <- dframe_filt$rt[1]
                 rt <- dframe_filt[["rt"]]
                 value <- dframe_filt[["value"]]
                 feature <- dframe_filt[["feature"]]
-                ggplot(data = dframe_filt, mapping = aes(x = rt, y = value, group = feature, color = feature)) +
+                pep_plot <- ggplot(data = dframe_filt, mapping = aes(x = rt, y = value, group = feature, color = feature)) +
                     geom_line() +
                     geom_point(size = 3) +
                     labs(title = paste0("Chromatogram: ", selector()), x = "Retention Time", y = "Value") +
-                    theme_minimal() +
-                    coord_cartesian(xlim = c(xfilter()[1] / 100 * (xmax - xmin) + xmin, xfilter()[2] / 100 * (xmax - xmin) + xmin), ylim = c(yfilter()[1] / 100 * ymax, yfilter()[2] / 100 * ymax))
+                    theme_minimal()
+                if (length(dframe_filt$rt) == 0) {
+                    pep_plot <- pep_plot + annotate("text",
+                        x = 1, y = 1, label = "No Data",
+                        color = "black",
+                        size = 15,
+                    )
+                } else {
+                    ymax <- max(dframe_filt$value)
+                    xmax <- max(dframe_filt$rt)
+                    xmin <- dframe_filt$rt[1]
+                    xl <- c(xfilter()[1] / 100 * (xmax - xmin) + xmin, xfilter()[2] / 100 * (xmax - xmin) + xmin)
+                    yl <- c(yfilter()[1] / 100 * ymax, yfilter()[2] / 100 * ymax)
+                    pep_plot <- pep_plot + coord_cartesian(xlim = xl, ylim = yl)
+                }
+                pep_plot
             })
         })
         obs
@@ -72,6 +83,7 @@ ui <- fluidPage(
             ),
         ),
     ),
+    actionButton("plot_button", label = "Plot"),
     layout_columns(
         sliderInput("yfilter", label = h5("Filter by Value"), min = 0, max = 100, value = c(0, 100)),
         sliderInput("xfilter", label = h5("Filter by Retention Time"), min = 0, max = 100, value = c(0, 100)),
@@ -92,7 +104,7 @@ server <- function(input, output, session) {
             col_select = c("pr", "feature", "rt", "value")
         )
     }
-    observeEvent(input$file_name, {
+    observeEvent(input$plot_button, {
         removeUI(selector = "#chart_container > *", multiple = TRUE, immediate = TRUE)
         for (i in seq_along(list_mod_obs)) {
             (list_mod_obs[[i]])$destroy()
