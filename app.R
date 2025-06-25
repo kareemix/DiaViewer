@@ -61,8 +61,8 @@ ui <- fluidPage(
                 options = list(maxOptions = 1000000000)
             ),
         ),
+        verbatimTextOutput("status_output"),
     ),
-    textOutput("loading_text"),
     div(id = "chart_container")
 )
 
@@ -70,7 +70,7 @@ append_unique_list <- function(target, source) {
     unique(append(target, source))
 }
 
-list_peptides <- NULL
+list_peptides <- list()
 list_peptides_list <- list()
 list_mod_obs <- list()
 
@@ -83,43 +83,53 @@ server <- function(input, output, session) {
         )
     }
     observeEvent(input$file_name, {
-        output$loading_text <- renderText({
-            "Loaded"
-        })
         removeUI(selector = "#chart_container > *", multiple = TRUE, immediate = TRUE)
         for (i in seq_along(list_mod_obs)) {
             (list_mod_obs[[i]])$destroy()
         }
         updateSelectizeInput(session, "peptide_name", choices = NULL, server = TRUE)
-        list_peptides <<- NULL
+        list_peptides <<- list()
         list_peptides_list <<- list()
         file_list <- list()
-        for (parq in input$file_name) {
-            dframe_file <- get_df(parq)
-            file_list <- append(file_list, list(dframe_file))
-        }
+        withProgress(message = "Processing Parquet(s)...", {
+            for (i in seq_along(input$file_name)) {
+                parq <- input$file_name[[i]]
+                dframe_file <- get_df(parq)
+                file_list <- append(file_list, list(dframe_file))
+                incProgress(1 / length(input$file_name))
+            }
+        })
         names_peptides <- list()
-        for (dframe_file in file_list) {
-            list_peptides <<- split.data.frame(dframe_file, dframe_file$pr)
-            names_peptides <- append_unique_list(names_peptides, names(list_peptides))
-            list_peptides_list[length(list_peptides_list) + 1] <<- list(list_peptides)
-        }
-        updateSelectizeInput(session, "peptide_name", choices = names_peptides, server = TRUE)
-        for (i in seq_along(file_list)) {
-            local({
-                this_i <- i
-                new_id <- paste0("plot_", this_i)
-                insertUI(
-                    selector = "#chart_container",
-                    ui = plot_ui(new_id, input$file_name[this_i]),
-                    immediate = TRUE
-                )
-                obs <- plot_server(new_id, this_i, selector = reactive({
-                    input$peptide_name
-                }))
-                list_mod_obs <<- append(list_mod_obs, list(obs))
-            })
-        }
+        withProgress(message = "Processing Peptides...", {
+            for (i in seq_along(file_list)) {
+                dframe_file <- file_list[[i]]
+                list_peptides <<- split.data.frame(dframe_file, dframe_file$pr)
+                names_peptides <- append_unique_list(names_peptides, names(list_peptides))
+                list_peptides_list[length(list_peptides_list) + 1] <<- list(list_peptides)
+                incProgress(1 / length(file_list))
+            }
+        })
+        withProgress(message = "Updating Peptide Selection...", {
+            updateSelectizeInput(session, "peptide_name", choices = names_peptides, server = TRUE)
+        })
+        withProgress(message = "Creating Plot(s)...", {
+            for (i in seq_along(file_list)) {
+                local({
+                    this_i <- i
+                    new_id <- paste0("plot_", this_i)
+                    insertUI(
+                        selector = "#chart_container",
+                        ui = plot_ui(new_id, input$file_name[this_i]),
+                        immediate = TRUE
+                    )
+                    obs <- plot_server(new_id, this_i, selector = reactive({
+                        input$peptide_name
+                    }))
+                    list_mod_obs <<- append(list_mod_obs, list(obs))
+                })
+                incProgress(1 / length(file_list))
+            }
+        })
     })
 }
 
