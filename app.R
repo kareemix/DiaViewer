@@ -66,31 +66,49 @@ plot_server <- function(id, index, selector, yfilter, xfilter, feature_sel) {
 # Define UI ----
 ui <- fluidPage(
     title = "DIA Viewer",
-    layout_columns(
-        tags$div(
-            selectizeInput("file_name",
-                label = h5("Select File:"),
-                choices = list.files(path = "./data", pattern = ".*\\.xic\\.parquet$"),
-                multiple = TRUE,
-                selected = list.files(path = "./data", pattern = ".*\\.xic\\.parquet$"),
-                # TODO - new card_ui func to add same num of plots as files
+    tags$head(
+        tags$style(HTML("
+            .selectize-input {
+            max-height: 200px;
+            overflow-y: auto;
+            }
+            #top_widgets {
+            background-color: white;
+            }
+            #chart_container {
+            padding-top: 250px;
+            }
+            "))
+    ),
+    fixedPanel(
+        div(
+            id = "top_widgets",
+            layout_columns(
+                tags$div(
+                    selectizeInput("file_name",
+                        label = h5("Select File:"),
+                        choices = list.files(path = "./data", pattern = ".*\\.xic\\.parquet$"),
+                        multiple = TRUE,
+                        selected = list.files(path = "./data", pattern = ".*\\.xic\\.parquet$"),
+                    ),
+                    actionButton("plot_button", label = "Plot"),
+                ),
+                tags$div(
+                    selectizeInput(
+                        "peptide_name",
+                        label = h5("Select Peptide:"),
+                        choices = NULL,
+                        options = list(maxOptions = 1000000000)
+                    ),
+                    checkboxGroupInput("feature_select", label = h5("Features"), choices = feature_list, inline = TRUE)
+                ),
+                tags$div(
+                    sliderInput("yfilter", label = h5("Filter by Value"), min = 0, max = 100, value = c(0, 100)),
+                    sliderInput("xfilter", label = h5("Filter by Retention Time"), min = 0, max = 100, value = c(0, 100)),
+                ),
             ),
-        ),
-        tags$div(
-            selectizeInput(
-                "peptide_name",
-                label = h5("Select Peptide:"),
-                choices = NULL,
-                options = list(maxOptions = 1000000000)
-            ),
-            checkboxGroupInput("feature_select", "Features", choices = feature_list, inline = TRUE)
-        ),
-        tags$div(
-            sliderInput("yfilter", label = h5("Filter by Value"), min = 0, max = 100, value = c(0, 100)),
-            sliderInput("xfilter", label = h5("Filter by Retention Time"), min = 0, max = 100, value = c(0, 100)),
         ),
     ),
-    actionButton("plot_button", label = "Plot"),
     div(id = "chart_container")
 )
 
