@@ -9,6 +9,7 @@ options(shiny.port = 3030)
 list_peptides <- c()
 list_peptides_list <- c()
 list_mod_obs <- c()
+feature_list <- c("b3^1", "b4^1", "b5^1", "b6^1", "ms1", "y10^1", "y11^1", "y4^1", "y5^1", "y6^1", "y7^1", "y8^1", "y9^1")
 
 
 plot_ui <- function(id, file_text) {
@@ -22,7 +23,7 @@ plot_ui <- function(id, file_text) {
     )
 }
 
-plot_server <- function(id, index, selector, yfilter, xfilter) {
+plot_server <- function(id, index, selector, yfilter, xfilter, feature_sel) {
     moduleServer(id, function(input, output, session) {
         get_pep <- reactive({
             req(selector())
@@ -32,6 +33,7 @@ plot_server <- function(id, index, selector, yfilter, xfilter) {
             dframe <- get_pep()
             output$chart <- renderPlot({
                 dframe_filt <- dframe[dframe$rt != 0, ]
+                dframe_filt <- dframe_filt[dframe_filt$feature %in% feature_sel(), ]
                 rt <- dframe_filt[["rt"]]
                 value <- dframe_filt[["value"]]
                 feature <- dframe_filt[["feature"]]
@@ -81,13 +83,14 @@ ui <- fluidPage(
                 choices = NULL,
                 options = list(maxOptions = 1000000000)
             ),
+            checkboxGroupInput("feature_select", "Features", choices = feature_list, inline = TRUE)
+        ),
+        tags$div(
+            sliderInput("yfilter", label = h5("Filter by Value"), min = 0, max = 100, value = c(0, 100)),
+            sliderInput("xfilter", label = h5("Filter by Retention Time"), min = 0, max = 100, value = c(0, 100)),
         ),
     ),
     actionButton("plot_button", label = "Plot"),
-    layout_columns(
-        sliderInput("yfilter", label = h5("Filter by Value"), min = 0, max = 100, value = c(0, 100)),
-        sliderInput("xfilter", label = h5("Filter by Retention Time"), min = 0, max = 100, value = c(0, 100)),
-    ),
     div(id = "chart_container")
 )
 
@@ -98,6 +101,7 @@ append_unique_list <- function(target, source) {
 
 # Define server logic ----
 server <- function(input, output, session) {
+    updateCheckboxGroupInput(session, "feature_select", selected = feature_list)
     get_df <- function(name) {
         read_parquet(
             paste0("./data/", name),
@@ -150,6 +154,8 @@ server <- function(input, output, session) {
                         input$yfilter
                     }), xfilter = reactive({
                         input$xfilter
+                    }), feature_sel = reactive({
+                        input$feature_select
                     }))
                     list_mod_obs <<- append(list_mod_obs, list(obs))
                 })
