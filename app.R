@@ -9,7 +9,8 @@ options(shiny.port = 3030)
 list_peptides <- c()
 list_peptides_list <- c()
 list_mod_obs <- c()
-feature_list <- c("b3^1", "b4^1", "b5^1", "b6^1", "ms1", "y10^1", "y11^1", "y4^1", "y5^1", "y6^1", "y7^1", "y8^1", "y9^1")
+# feature_list <- c("b3^1", "b4^1", "b5^1", "b6^1", "ms1", "y10^1", "y11^1", "y4^1", "y5^1", "y6^1", "y7^1", "y8^1", "y9^1")
+feature_list <- c()
 
 
 plot_ui <- function(id, file_text) {
@@ -69,43 +70,63 @@ ui <- fluidPage(
     tags$head(
         tags$style(HTML("
             .selectize-input {
-            max-height: 200px;
+            max-height: 150px;
             overflow-y: auto;
+            }
+            #filler {
+            padding-top: 10px;
             }
             #top_widgets {
             background-color: white;
+            border-style: ridge;
             }
             #chart_container {
-            padding-top: 250px;
+            padding-top: 275px;
             }
             "))
     ),
+    div(id = "filler"),
     fixedPanel(
-        div(
-            id = "top_widgets",
-            layout_columns(
-                tags$div(
-                    selectizeInput("file_name",
-                        label = h5("Select File:"),
-                        choices = list.files(path = "./data", pattern = ".*\\.xic\\.parquet$"),
-                        multiple = TRUE,
-                        selected = list.files(path = "./data", pattern = ".*\\.xic\\.parquet$"),
-                    ),
-                    actionButton("plot_button", label = "Plot"),
+        id = "top_widgets",
+        column(
+            3,
+            tags$div(
+                selectizeInput("file_name",
+                    label = h5("Select File:"),
+                    choices = list.files(path = "./data", pattern = ".*\\.xic\\.parquet$"),
+                    multiple = TRUE,
+                    selected = list.files(path = "./data", pattern = ".*\\.xic\\.parquet$"),
                 ),
-                tags$div(
-                    selectizeInput(
-                        "peptide_name",
-                        label = h5("Select Peptide:"),
-                        choices = NULL,
-                        options = list(maxOptions = 1000000000)
-                    ),
-                    checkboxGroupInput("feature_select", label = h5("Features"), choices = feature_list, inline = TRUE)
+                actionButton("plot_button", label = "Plot"),
+            ),
+        ),
+        column(
+            3,
+            tags$div(
+                selectizeInput(
+                    "peptide_name",
+                    label = h5("Select Peptide:"),
+                    choices = NULL,
+                    options = list(maxOptions = 1000000000)
                 ),
-                tags$div(
-                    sliderInput("yfilter", label = h5("Filter by Value"), min = 0, max = 100, value = c(0, 100)),
-                    sliderInput("xfilter", label = h5("Filter by Retention Time"), min = 0, max = 100, value = c(0, 100)),
+            ),
+        ),
+        column(
+            3,
+            tags$div(
+                selectizeInput(
+                    "feature_select",
+                    label = h5("Features:"),
+                    choices = NULL,
+                    multiple = TRUE
                 ),
+            ),
+        ),
+        column(
+            3,
+            tags$div(
+                sliderInput("yfilter", label = h5("Filter by Value"), min = 0, max = 100, value = c(0, 100)),
+                sliderInput("xfilter", label = h5("Filter by Retention Time"), min = 0, max = 100, value = c(0, 100)),
             ),
         ),
     ),
@@ -150,11 +171,13 @@ server <- function(input, output, session) {
                 list_peptides <<- split.data.frame(dframe_file, dframe_file$pr)
                 names_peptides <- append_unique_list(names_peptides, names(list_peptides))
                 list_peptides_list[length(list_peptides_list) + 1] <<- list(list_peptides)
+                feature_list <<- append_unique_list(feature_list, names(split.data.frame(dframe_file, dframe_file$feature)))
                 incProgress(1 / length(file_list))
             }
         })
         withProgress(message = "Updating Peptide Selection...", {
             updateSelectizeInput(session, "peptide_name", choices = names_peptides, server = TRUE)
+            updateSelectizeInput(session, "feature_select", choices = feature_list, server = TRUE, selected = feature_list)
         })
         withProgress(message = "Creating Plot(s)...", {
             for (i in seq_along(file_list)) {
