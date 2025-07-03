@@ -2,6 +2,10 @@ library(shiny)
 library(bslib)
 library(arrow)
 library(ggplot2)
+library(reticulate)
+
+
+source_python("filter.py")
 
 options(shiny.port = 3030)
 
@@ -10,6 +14,7 @@ list_peptides <- c()
 list_peptides_list <- c()
 list_mod_obs <- c()
 feature_list <- c()
+saved_input <- list(TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, 8, 1.5)
 
 
 plot_ui <- function(id, file_text) {
@@ -24,7 +29,8 @@ plot_ui <- function(id, file_text) {
     )
 }
 
-plot_server <- function(id, index, selector, yfilter, xfilter, feature_sel) {
+
+plot_server <- function(id, index, selector, filter_settings, feature_sel) {
     moduleServer(id, function(input, output, session) {
         get_pep <- reactive({
             req(selector())
@@ -35,6 +41,18 @@ plot_server <- function(id, index, selector, yfilter, xfilter, feature_sel) {
             output$chart <- renderPlot({
                 dframe_filt <- dframe[dframe$rt != 0, ]
                 dframe_filt <- dframe_filt[dframe_filt$feature %in% feature_sel(), ]
+                # dframe_filt <- filter_diann(
+                #     dframe_filt,
+                #     empirical_lib = filter_settings[1],
+                #     peptidoform_mode = filter_settings[2],
+                #     plexdia = filter_settings[3],
+                #     PGMaxLFQ = filter_settings[4],
+                #     QQ = filter_settings[5],
+                #     avg_quality_filter = filter_settings[6],
+                #     filter_peak_width = filter_settings[7],
+                #     min_points_across_peak = filter_settings[8],
+                #     duty_cycle = filter_settings[9]
+                # )
                 rt <- dframe_filt[["rt"]]
                 value <- dframe_filt[["value"]]
                 feature <- dframe_filt[["feature"]]
@@ -49,13 +67,6 @@ plot_server <- function(id, index, selector, yfilter, xfilter, feature_sel) {
                         color = "black",
                         size = 15,
                     )
-                } else {
-                    ymax <- max(dframe_filt$value)
-                    xmax <- max(dframe_filt$rt)
-                    xmin <- dframe_filt$rt[1]
-                    xl <- c(xfilter()[1] / 100 * (xmax - xmin) + xmin, xfilter()[2] / 100 * (xmax - xmin) + xmin)
-                    yl <- c(yfilter()[1] / 100 * ymax, yfilter()[2] / 100 * ymax)
-                    pep_plot <- pep_plot + coord_cartesian(xlim = xl, ylim = yl)
                 }
                 pep_plot
             })
@@ -63,6 +74,7 @@ plot_server <- function(id, index, selector, yfilter, xfilter, feature_sel) {
         obs
     })
 }
+
 
 # Define UI ----
 ui <- fluidPage(
@@ -80,6 +92,7 @@ ui <- fluidPage(
             background-color: white;
             border-style: double;
             border-width: 5px;
+            z-index: 1020;
             }
             #chart_container {
             padding-top: 275px;
@@ -113,7 +126,7 @@ ui <- fluidPage(
             ),
         ),
         column(
-            3,
+            2,
             tags$div(
                 selectizeInput(
                     "feature_select",
@@ -124,15 +137,13 @@ ui <- fluidPage(
             ),
         ),
         column(
-            3,
-            tags$div(
-                sliderInput("yfilter", label = h5("Filter by Value:"), min = 0, max = 100, value = c(0, 100)),
-                sliderInput("xfilter", label = h5("Filter by Retention Time:"), min = 0, max = 100, value = c(0, 100)),
-            ),
+            4,
+            actionButton("filter_settings", label = "Filter Settings"),
         ),
     ),
     div(id = "chart_container")
 )
+
 
 append_unique_list <- function(target, source) {
     unique(append(target, source))
@@ -161,6 +172,7 @@ server <- function(input, output, session) {
             for (i in seq_along(input$file_name)) {
                 parq <- input$file_name[[i]]
                 dframe_file <- get_df(parq)
+                print(head(dframe_file))
                 file_list <- append(file_list, list(dframe_file))
                 incProgress(1 / length(input$file_name))
             }
@@ -192,22 +204,58 @@ server <- function(input, output, session) {
                         ui = plot_ui(id = new_id, file_text = input$file_name[this_i]),
                         immediate = TRUE
                     )
-                    obs <- plot_server(id = new_id, index = this_i, selector = reactive({
-                        input$peptide_name
-                    }), yfilter = reactive({
-                        input$yfilter
-                    }), xfilter = reactive({
-                        input$xfilter
-                    }), feature_sel = reactive({
-                        input$feature_select
-                    }))
+                    obs <- plot_server(
+                        id = new_id,
+                        index = this_i,
+                        selector = reactive({
+                            input$peptide_name
+                        }),
+                        filter_settings = saved_input,
+                        feature_sel = reactive({
+                            input$feature_select
+                        })
+                    )
                     list_mod_obs <<- append(list_mod_obs, list(obs))
                 })
                 incProgress(1 / length(file_list))
             }
         })
     })
+    observeEvent(input$filter_settings, {
+        showModal(
+            modalDialog(
+                title = "Filter Settings",
+                footer = actionButton("filter_close", label = "Close"),
+                easyClose = TRUE,
+                fade = FALSE,
+                checkboxInput("filter_1", label = "empirical_lib:", value = TRUE),
+                checkboxInput("filter_2", label = "peptidoform_mode:", value = TRUE),
+                checkboxInput("filter_3", label = "plexdia:", value = FALSE),
+                checkboxInput("filter_4", label = "PGMaxLFQ:", value = FALSE),
+                checkboxInput("filter_5", label = "QQ:", value = FALSE),
+                checkboxInput("filter_6", label = "avg_quality_filter:", value = FALSE),
+                checkboxInput("filter_7", label = "filter_peak_width:", value = FALSE),
+                numericInput("filter_8", label = h5("min_points_across_peak"), value = 8),
+                numericInput("filter_9", label = h5("duty_cycle"), value = 1.5),
+            )
+        )
+    })
+    observeEvent(input$filter_close, {
+        saved_input <<- list(
+            input$filter_1,
+            input$filter_2,
+            input$filter_3,
+            input$filter_4,
+            input$filter_5,
+            input$filter_6,
+            input$filter_7,
+            input$filter_8,
+            input$filter_9
+        )
+        removeModal()
+    })
 }
+
 
 # Run the app ----
 shinyApp(ui = ui, server = server)
