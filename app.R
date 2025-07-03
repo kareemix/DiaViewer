@@ -8,6 +8,7 @@ library(reticulate)
 source_python("filter.py")
 
 options(shiny.port = 3030)
+options(shiny.maxRequestSize = 100 * 1024^2)
 
 
 list_peptides <- c()
@@ -15,6 +16,7 @@ list_peptides_list <- c()
 list_mod_obs <- c()
 feature_list <- c()
 saved_input <- list(TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, 8, 1.5)
+report_parq <- NULL
 
 
 plot_ui <- function(id, file_text) {
@@ -30,7 +32,7 @@ plot_ui <- function(id, file_text) {
 }
 
 
-plot_server <- function(id, index, selector, filter_settings, feature_sel) {
+plot_server <- function(id, file_text, index, selector, feature_sel) {
     moduleServer(id, function(input, output, session) {
         get_pep <- reactive({
             req(selector())
@@ -41,18 +43,6 @@ plot_server <- function(id, index, selector, filter_settings, feature_sel) {
             output$chart <- renderPlot({
                 dframe_filt <- dframe[dframe$rt != 0, ]
                 dframe_filt <- dframe_filt[dframe_filt$feature %in% feature_sel(), ]
-                # dframe_filt <- filter_diann(
-                #     dframe_filt,
-                #     empirical_lib = filter_settings[1],
-                #     peptidoform_mode = filter_settings[2],
-                #     plexdia = filter_settings[3],
-                #     PGMaxLFQ = filter_settings[4],
-                #     QQ = filter_settings[5],
-                #     avg_quality_filter = filter_settings[6],
-                #     filter_peak_width = filter_settings[7],
-                #     min_points_across_peak = filter_settings[8],
-                #     duty_cycle = filter_settings[9]
-                # )
                 rt <- dframe_filt[["rt"]]
                 value <- dframe_filt[["value"]]
                 feature <- dframe_filt[["feature"]]
@@ -138,6 +128,7 @@ ui <- fluidPage(
         ),
         column(
             4,
+            fileInput("report_upload", label = h5("report.parquet:"), accept = ".parquet"),
             actionButton("filter_settings", label = "Filter Settings"),
         ),
     ),
@@ -172,7 +163,6 @@ server <- function(input, output, session) {
             for (i in seq_along(input$file_name)) {
                 parq <- input$file_name[[i]]
                 dframe_file <- get_df(parq)
-                print(head(dframe_file))
                 file_list <- append(file_list, list(dframe_file))
                 incProgress(1 / length(input$file_name))
             }
@@ -206,11 +196,11 @@ server <- function(input, output, session) {
                     )
                     obs <- plot_server(
                         id = new_id,
+                        file_text = input$file_name[this_i],
                         index = this_i,
                         selector = reactive({
                             input$peptide_name
                         }),
-                        filter_settings = saved_input,
                         feature_sel = reactive({
                             input$feature_select
                         })
@@ -226,7 +216,6 @@ server <- function(input, output, session) {
             modalDialog(
                 title = "Filter Settings",
                 footer = actionButton("filter_close", label = "Close"),
-                easyClose = TRUE,
                 fade = FALSE,
                 checkboxInput("filter_1", label = "empirical_lib:", value = TRUE),
                 checkboxInput("filter_2", label = "peptidoform_mode:", value = TRUE),
@@ -252,7 +241,36 @@ server <- function(input, output, session) {
             input$filter_8,
             input$filter_9
         )
+        if(!is.null(input$report_upload)) {
+            report_parq <<- filter_diann(
+                report_parq,
+                empirical_lib = saved_input[[1]],
+                peptidoform_mode = saved_input[[2]],
+                plexdia = saved_input[[3]],
+                PGMaxLFQ = saved_input[[4]],
+                QQ = saved_input[[5]],
+                avg_quality_filter = saved_input[[6]],
+                filter_peak_width = saved_input[[7]],
+                min_points_across_peak = saved_input[[8]],
+                duty_cycle = saved_input[[9]]
+            )
+        }
         removeModal()
+    })
+    observeEvent(input$report_upload, {
+        report_parq <<- read_parquet(input$report_upload$datapath)
+        report_parq <<- filter_diann(
+            report_parq,
+            empirical_lib = saved_input[[1]],
+            peptidoform_mode = saved_input[[2]],
+            plexdia = saved_input[[3]],
+            PGMaxLFQ = saved_input[[4]],
+            QQ = saved_input[[5]],
+            avg_quality_filter = saved_input[[6]],
+            filter_peak_width = saved_input[[7]],
+            min_points_across_peak = saved_input[[8]],
+            duty_cycle = saved_input[[9]]
+        )
     })
 }
 

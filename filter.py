@@ -1,3 +1,6 @@
+import pandas as pd
+
+
 def filter_diann(
     df,
     empirical_lib=False,
@@ -15,6 +18,8 @@ def filter_diann(
         kept_pct = after / before * 100 if before > 0 else 0
         removed_pct = removed / before * 100 if before > 0 else 0
         print(f"{name}: {after} rows kept ({kept_pct:.2f}%), {removed} removed ({removed_pct:.2f}%)")
+
+    print(df.head())
 
     original_count = len(df)
     print(f"Starting with {original_count} rows")
@@ -105,17 +110,3 @@ def filter_diann(
     print(f"Final count: {final_count} rows ({total_pct:.2f}% kept, {original_count - final_count} removed)")
 
     return df9
-
-
-# df_nofilter = filter_diann(
-#     df,
-#     empirical_lib=True,
-#     peptidoform_mode=True,
-#     plexdia=False,
-#     PGMaxLFQ=False,
-#     QQ=False,
-#     avg_quality_filter=False,
-#     filter_peak_width=False,
-#     min_points_across_peak=8,
-#     duty_cycle=1.5  # in seconds
-# )
