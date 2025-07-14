@@ -2,14 +2,17 @@ library(shiny)
 library(bslib)
 library(arrow)
 library(ggplot2)
-library(reticulate)
+#library(reticulate)
 
+library(duckdb)
+library(duckplyr)
 
-source_python("filter.py")
+#source_python("filter.py")
 
 options(shiny.port = 3030)
-options(shiny.maxRequestSize = 100 * 1024^2)
+options(shiny.maxRequestSize = 1000 * 1024^2)
 
+con <- dbConnect(duckdb())
 
 list_peptides <- c()
 list_peptides_list <- c()
@@ -36,12 +39,14 @@ plot_server <- function(id, file_text, index, selector, feature_sel) {
     moduleServer(id, function(input, output, session) {
         get_pep <- reactive({
             req(selector())
-            return((list_peptides_list[[index]])[[selector()]])
+            dbGetQuery(con, paste0("SELECT ARRAY_AGG(struct_pack(rt, value, feature)) AS pep_vals" , index, " FROM file", index, " WHERE pr = '", selector(), "'"))
         })
         obs <- observeEvent(selector(), {
             dframe <- get_pep()
+            dframe <- dframe[[paste0("pep_vals", index)]][[1]]
+            print(head(dframe))
             output$chart <- renderPlot({
-                dframe_filt <- dframe[dframe$rt != 0, ]
+                dframe_filt <- dframe[dframe$rt > 0, ]
                 dframe_filt <- dframe_filt[dframe_filt$feature %in% feature_sel(), ]
                 rt <- dframe_filt[["rt"]]
                 value <- dframe_filt[["value"]]
@@ -144,11 +149,15 @@ append_unique_list <- function(target, source) {
 # Define server logic ----
 server <- function(input, output, session) {
     updateCheckboxGroupInput(session, "feature_select", selected = feature_list)
-    get_df <- function(name) {
-        read_parquet(
-            paste0("./data/", name),
-            col_select = c("pr", "feature", "rt", "value")
-        )
+    get_df <- function(name, i) {
+        query <- paste0(paste0("CREATE VIEW ", paste0("file", i)), paste0(" AS SELECT * FROM PARQUET_SCAN('data/"), paste0(name, "');"))
+        dbExecute(con, query)
+        tbl(con, paste0("file", i))
+        paste0("file", i)
+        # open_dataset(
+        #     paste0("./data/", name),
+        #     col_select = c("pr", "feature", "rt", "value")
+        # )
     }
     observeEvent(input$plot_button, {
         removeUI(selector = "#chart_container > *", multiple = TRUE, immediate = TRUE)
@@ -162,7 +171,7 @@ server <- function(input, output, session) {
         withProgress(message = "Processing Parquet(s)", {
             for (i in seq_along(input$file_name)) {
                 parq <- input$file_name[[i]]
-                dframe_file <- get_df(parq)
+                dframe_file <- get_df(parq, i)
                 file_list <- append(file_list, list(dframe_file))
                 incProgress(1 / length(input$file_name))
             }
@@ -171,15 +180,17 @@ server <- function(input, output, session) {
         withProgress(message = "Processing Peptides", detail = "This may take a while...", {
             for (i in seq_along(file_list)) {
                 dframe_file <- file_list[[i]]
-                list_peptides <<- split.data.frame(dframe_file, dframe_file$pr)
-                names_peptides <- append_unique_list(names_peptides, names(list_peptides))
+                #list_peptides <<- dframe_file %>% group_by(pr) %>% group_split()
+                list_peptides <<- dbGetQuery(con, paste0("SELECT pr FROM ", dframe_file, " GROUP BY pr"))
+                print(head(list_peptides))
+                names_peptides <- append_unique_list(names_peptides, list_peptides)
                 list_peptides_list[length(list_peptides_list) + 1] <<- list(list_peptides)
-                feature_list <<- append_unique_list(feature_list, names(split.data.frame(dframe_file, dframe_file$feature)))
+                feature_list <<- append_unique_list(feature_list, dbGetQuery(con, paste0("SELECT feature FROM ", dframe_file, " GROUP BY feature")))
                 incProgress(1 / length(file_list))
             }
         })
-        names_peptides <- sort(names_peptides)
-        feature_list <- sort(feature_list)
+        names_peptides <- sort(unlist(names_peptides))
+        feature_list <- sort(unlist(feature_list))
         withProgress(message = "Updating Peptide Selection", {
             updateSelectizeInput(session, "peptide_name", choices = names_peptides, server = TRUE)
             updateSelectizeInput(session, "feature_select", choices = feature_list, server = TRUE, selected = feature_list)
