@@ -2,20 +2,18 @@ library(shiny)
 library(bslib)
 library(arrow)
 library(ggplot2)
-#library(reticulate)
+library(reticulate)
 
 library(duckdb)
 library(duckplyr)
 
-#source_python("filter.py")
+source_python("filter.py")
 
 options(shiny.port = 3030)
 options(shiny.maxRequestSize = 1000 * 1024^2)
 
 con <- dbConnect(duckdb())
 
-list_peptides <- c()
-list_peptides_list <- c()
 list_mod_obs <- c()
 feature_list <- c()
 saved_input <- list(TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, 8, 1.5)
@@ -39,12 +37,11 @@ plot_server <- function(id, file_text, index, selector, feature_sel) {
     moduleServer(id, function(input, output, session) {
         get_pep <- reactive({
             req(selector())
-            dbGetQuery(con, paste0("SELECT ARRAY_AGG(struct_pack(rt, value, feature)) AS pep_vals" , index, " FROM file", index, " WHERE pr = '", selector(), "'"))
+            dbGetQuery(con, paste0("SELECT ARRAY_AGG(struct_pack(rt, value, feature)) AS pep_vals", index, " FROM '", file_text, "' WHERE pr = '", selector(), "'"))
         })
         obs <- observeEvent(selector(), {
             dframe <- get_pep()
             dframe <- dframe[[paste0("pep_vals", index)]][[1]]
-            print(head(dframe))
             output$chart <- renderPlot({
                 dframe_filt <- dframe[dframe$rt > 0, ]
                 dframe_filt <- dframe_filt[dframe_filt$feature %in% feature_sel(), ]
@@ -135,6 +132,7 @@ ui <- fluidPage(
             4,
             fileInput("report_upload", label = h5("report.parquet:"), accept = ".parquet"),
             actionButton("filter_settings", label = "Filter Settings"),
+            actionButton("filter_execute", label = "Filter"),
         ),
     ),
     div(id = "chart_container")
@@ -142,7 +140,7 @@ ui <- fluidPage(
 
 
 append_unique_list <- function(target, source) {
-    unique(append(target, source))
+    unique(c(target, source))
 }
 
 
@@ -150,10 +148,9 @@ append_unique_list <- function(target, source) {
 server <- function(input, output, session) {
     updateCheckboxGroupInput(session, "feature_select", selected = feature_list)
     get_df <- function(name, i) {
-        query <- paste0(paste0("CREATE VIEW ", paste0("file", i)), paste0(" AS SELECT * FROM PARQUET_SCAN('data/"), paste0(name, "');"))
+        query <- paste0("CREATE TABLE '", name, "' AS SELECT * FROM PARQUET_SCAN('data/", name, "');")
         dbExecute(con, query)
-        tbl(con, paste0("file", i))
-        paste0("file", i)
+        name
         # open_dataset(
         #     paste0("./data/", name),
         #     col_select = c("pr", "feature", "rt", "value")
@@ -165,8 +162,6 @@ server <- function(input, output, session) {
             (list_mod_obs[[i]])$destroy()
         }
         updateSelectizeInput(session, "peptide_name", choices = NULL, server = TRUE)
-        list_peptides <<- c()
-        list_peptides_list <<- c()
         file_list <- c()
         withProgress(message = "Processing Parquet(s)", {
             for (i in seq_along(input$file_name)) {
@@ -180,12 +175,9 @@ server <- function(input, output, session) {
         withProgress(message = "Processing Peptides", detail = "This may take a while...", {
             for (i in seq_along(file_list)) {
                 dframe_file <- file_list[[i]]
-                #list_peptides <<- dframe_file %>% group_by(pr) %>% group_split()
-                list_peptides <<- dbGetQuery(con, paste0("SELECT pr FROM ", dframe_file, " GROUP BY pr"))
-                print(head(list_peptides))
-                names_peptides <- append_unique_list(names_peptides, list_peptides)
-                list_peptides_list[length(list_peptides_list) + 1] <<- list(list_peptides)
-                feature_list <<- append_unique_list(feature_list, dbGetQuery(con, paste0("SELECT feature FROM ", dframe_file, " GROUP BY feature")))
+                list_peptides <- dbGetQuery(con, paste0("SELECT DISTINCT pr FROM '", dframe_file, "' GROUP BY pr"))
+                names_peptides <- append_unique_list(names_peptides, list_peptides$pr)
+                feature_list <<- append_unique_list(feature_list, dbGetQuery(con, paste0("SELECT DISTINCT feature FROM '", dframe_file, "' GROUP BY feature"))$feature)
                 incProgress(1 / length(file_list))
             }
         })
@@ -228,15 +220,15 @@ server <- function(input, output, session) {
                 title = "Filter Settings",
                 footer = actionButton("filter_close", label = "Close"),
                 fade = FALSE,
-                checkboxInput("filter_1", label = "empirical_lib:", value = TRUE),
-                checkboxInput("filter_2", label = "peptidoform_mode:", value = TRUE),
-                checkboxInput("filter_3", label = "plexdia:", value = FALSE),
-                checkboxInput("filter_4", label = "PGMaxLFQ:", value = FALSE),
-                checkboxInput("filter_5", label = "QQ:", value = FALSE),
-                checkboxInput("filter_6", label = "avg_quality_filter:", value = FALSE),
-                checkboxInput("filter_7", label = "filter_peak_width:", value = FALSE),
-                numericInput("filter_8", label = h5("min_points_across_peak"), value = 8),
-                numericInput("filter_9", label = h5("duty_cycle"), value = 1.5),
+                checkboxInput("filter_1", label = "empirical_lib:", value = saved_input[[1]]),
+                checkboxInput("filter_2", label = "peptidoform_mode:", value = saved_input[[2]]),
+                checkboxInput("filter_3", label = "plexdia:", value = saved_input[[3]]),
+                checkboxInput("filter_4", label = "PGMaxLFQ:", value = saved_input[[4]]),
+                checkboxInput("filter_5", label = "QQ:", value = saved_input[[5]]),
+                checkboxInput("filter_6", label = "avg_quality_filter:", value = saved_input[[6]]),
+                checkboxInput("filter_7", label = "filter_peak_width:", value = saved_input[[7]]),
+                numericInput("filter_8", label = h5("min_points_across_peak"), value = saved_input[[8]]),
+                numericInput("filter_9", label = h5("duty_cycle"), value = saved_input[[9]]),
             )
         )
     })
@@ -252,26 +244,15 @@ server <- function(input, output, session) {
             input$filter_8,
             input$filter_9
         )
-        if(!is.null(input$report_upload)) {
-            report_parq <<- filter_diann(
-                report_parq,
-                empirical_lib = saved_input[[1]],
-                peptidoform_mode = saved_input[[2]],
-                plexdia = saved_input[[3]],
-                PGMaxLFQ = saved_input[[4]],
-                QQ = saved_input[[5]],
-                avg_quality_filter = saved_input[[6]],
-                filter_peak_width = saved_input[[7]],
-                min_points_across_peak = saved_input[[8]],
-                duty_cycle = saved_input[[9]]
-            )
-        }
         removeModal()
     })
     observeEvent(input$report_upload, {
-        report_parq <<- read_parquet(input$report_upload$datapath)
+        query <- paste0("CREATE TABLE report AS SELECT * FROM PARQUET_SCAN('", input$report_upload$datapath, "');")
+        dbExecute(con, query)
+    })
+    observeEvent(input$filter_execute, {
         report_parq <<- filter_diann(
-            report_parq,
+            dbGetQuery(con, paste0("SELECT * FROM report;")),
             empirical_lib = saved_input[[1]],
             peptidoform_mode = saved_input[[2]],
             plexdia = saved_input[[3]],
@@ -282,6 +263,7 @@ server <- function(input, output, session) {
             min_points_across_peak = saved_input[[8]],
             duty_cycle = saved_input[[9]]
         )
+        print(head(report_parq))
     })
 }
 
