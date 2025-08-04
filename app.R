@@ -18,7 +18,6 @@ list_mod_obs <- c()
 feature_list <- c()
 saved_input <- list(TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, 8, 1.5)
 report_parq <- NULL
-pep_filt <- c()
 peps_unfiltered <- c()
 peps_filtered <- c()
 
@@ -132,6 +131,7 @@ ui <- fluidPage(
                     choices = NULL,
                     options = list(maxOptions = 1000000000)
                 ),
+                textOutput("num_peps"),
             ),
         ),
         column(
@@ -175,7 +175,10 @@ server <- function(input, output, session) {
         # )
     }
     update_peps <- function(pep_list) {
-            updateSelectizeInput(session, "peptide_name", choices = pep_list, server = TRUE)
+        updateSelectizeInput(session, "peptide_name", choices = pep_list, server = TRUE)
+        output$num_peps <- renderText({
+            paste0("# of Peptides: ", length(pep_list))
+        })
     }
     observeEvent(input$plot_button, {
         removeUI(selector = "#chart_container > *", multiple = TRUE, immediate = TRUE)
@@ -290,7 +293,7 @@ server <- function(input, output, session) {
         })
     })
     observeEvent(input$filter_enable, {
-        if(input$filter_enable) {
+        if (input$filter_enable) {
             update_peps(peps_filtered)
         } else {
             update_peps(peps_unfiltered)
