@@ -18,6 +18,9 @@ list_mod_obs <- c()
 feature_list <- c()
 saved_input <- list(TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, 8, 1.5)
 report_parq <- NULL
+pep_filt <- c()
+peps_unfiltered <- c()
+peps_filtered <- c()
 
 
 plot_ui <- function(id, file_text) {
@@ -60,6 +63,20 @@ plot_server <- function(id, file_text, index, selector, feature_sel) {
                         size = 15,
                     )
                 }
+                # if (!is.null(report_parq)) {
+                #     file_text_trunc <- substr(file_text, 1, nchar(file_text) - 12)
+                #     temp_split <- split.data.frame(report_parq[[file_text_trunc]], report_parq[[file_text_trunc]]$Precursor.Id)
+                #     if (selector() %in% names(temp_split)) {
+                #         pep_plot <- pep_plot + annotate(
+                #             "text",
+                #             x = min(rt),
+                #             y = max(value),
+                #             label = "In Filter Results",
+                #             color = "black",
+                #             size = 6,
+                #         )
+                #     }
+                # }
                 pep_plot
             })
         })
@@ -133,6 +150,7 @@ ui <- fluidPage(
             fileInput("report_upload", label = h5("report.parquet:"), accept = ".parquet"),
             actionButton("filter_settings", label = "Filter Settings"),
             actionButton("filter_execute", label = "Filter"),
+            checkboxInput("filter_enable", label = "Use Filter"),
         ),
     ),
     div(id = "chart_container")
@@ -148,13 +166,16 @@ append_unique_list <- function(target, source) {
 server <- function(input, output, session) {
     updateCheckboxGroupInput(session, "feature_select", selected = feature_list)
     get_df <- function(name, i) {
-        query <- paste0("CREATE TABLE '", name, "' AS SELECT * FROM PARQUET_SCAN('data/", name, "');")
+        query <- paste0("CREATE TABLE IF NOT EXISTS'", name, "' AS SELECT * FROM PARQUET_SCAN('data/", name, "');")
         dbExecute(con, query)
         name
         # open_dataset(
         #     paste0("./data/", name),
         #     col_select = c("pr", "feature", "rt", "value")
         # )
+    }
+    update_peps <- function(pep_list) {
+            updateSelectizeInput(session, "peptide_name", choices = pep_list, server = TRUE)
     }
     observeEvent(input$plot_button, {
         removeUI(selector = "#chart_container > *", multiple = TRUE, immediate = TRUE)
@@ -181,12 +202,10 @@ server <- function(input, output, session) {
                 incProgress(1 / length(file_list))
             }
         })
-        names_peptides <- sort(unlist(names_peptides))
+        peps_unfiltered <<- sort(unlist(names_peptides))
         feature_list <- sort(unlist(feature_list))
-        withProgress(message = "Updating Peptide Selection", {
-            updateSelectizeInput(session, "peptide_name", choices = names_peptides, server = TRUE)
-            updateSelectizeInput(session, "feature_select", choices = feature_list, server = TRUE, selected = feature_list)
-        })
+        update_peps(peps_unfiltered)
+        updateSelectizeInput(session, "feature_select", choices = feature_list, server = TRUE, selected = feature_list)
         withProgress(message = "Creating Plot(s)", {
             for (i in seq_along(file_list)) {
                 local({
@@ -251,19 +270,31 @@ server <- function(input, output, session) {
         dbExecute(con, query)
     })
     observeEvent(input$filter_execute, {
-        report_parq <<- filter_diann(
-            dbGetQuery(con, paste0("SELECT * FROM report;")),
-            empirical_lib = saved_input[[1]],
-            peptidoform_mode = saved_input[[2]],
-            plexdia = saved_input[[3]],
-            PGMaxLFQ = saved_input[[4]],
-            QQ = saved_input[[5]],
-            avg_quality_filter = saved_input[[6]],
-            filter_peak_width = saved_input[[7]],
-            min_points_across_peak = saved_input[[8]],
-            duty_cycle = saved_input[[9]]
-        )
-        print(head(report_parq))
+        withProgress(message = "Running Filter...", {
+            report_parq <<- filter_diann(
+                dbGetQuery(con, paste0("SELECT * FROM report;")),
+                empirical_lib = saved_input[[1]],
+                peptidoform_mode = saved_input[[2]],
+                plexdia = saved_input[[3]],
+                PGMaxLFQ = saved_input[[4]],
+                QQ = saved_input[[5]],
+                avg_quality_filter = saved_input[[6]],
+                filter_peak_width = saved_input[[7]],
+                min_points_across_peak = saved_input[[8]],
+                duty_cycle = saved_input[[9]]
+            )
+            incProgress(1 / 2)
+            report_parq <<- split.data.frame(report_parq, report_parq$Precursor.Id)
+            peps_filtered <<- names(report_parq)
+            incProgress(2 / 2)
+        })
+    })
+    observeEvent(input$filter_enable, {
+        if(input$filter_enable) {
+            update_peps(peps_filtered)
+        } else {
+            update_peps(peps_unfiltered)
+        }
     })
 }
 
