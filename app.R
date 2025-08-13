@@ -1,5 +1,4 @@
 library(shiny)
-library(bslib)
 library(arrow)
 library(ggplot2)
 library(reticulate)
@@ -13,6 +12,7 @@ options(shiny.port = 3030)
 options(shiny.maxRequestSize = 1000 * 1024^2)
 
 con <- dbConnect(duckdb())
+
 
 list_mod_obs <- c()
 feature_list <- c()
@@ -84,7 +84,6 @@ plot_server <- function(id, file_text, index, selector, feature_sel) {
 }
 
 
-# Define UI ----
 ui <- fluidPage(
     title = "DIA Viewer",
     tags$head(
@@ -162,7 +161,6 @@ append_unique_list <- function(target, source) {
 }
 
 
-# Define server logic ----
 server <- function(input, output, session) {
     updateCheckboxGroupInput(session, "feature_select", selected = feature_list)
     get_df <- function(name, i) {
@@ -302,5 +300,4 @@ server <- function(input, output, session) {
 }
 
 
-# Run the app ----
 shinyApp(ui = ui, server = server)
