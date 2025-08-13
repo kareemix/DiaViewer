@@ -13,7 +13,6 @@ options(shiny.maxRequestSize = 1000 * 1024^2)
 
 con <- dbConnect(duckdb())
 
-
 list_mod_obs <- c()
 feature_list <- c()
 saved_input <- list(TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, 8, 1.5)
